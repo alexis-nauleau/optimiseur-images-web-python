@@ -1,22 +1,14 @@
-# ============================================================
-# optimiser_images.py : optimise des images pour le web (redimensionne + convertit en WebP)
-# Par défaut : SIMULATION. On calcule les tailles sans écrire aucun fichier.
-# Ajouter --appliquer pour créer les images optimisées.
-# Les originaux ne sont JAMAIS modifiés : le résultat va dans un autre dossier.
-# ============================================================
-
-# ---------- IMPORTS ----------
 import argparse            # Lire les arguments du terminal
 import io                  # BytesIO : un "fichier" qui vit dans la mémoire, pas sur le disque
 from pathlib import Path   # Manipuler les chemins de fichiers
 
 from PIL import Image, ImageOps    # Image : ouvrir/modifier ; ImageOps : outils (orientation...)
 
-# Formats d'entrée acceptés
+
 EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
 
-# ---------- FONCTION 1 : afficher une taille lisiblement ----------
+
 def lisible(octets):
     """Transforme 1536000 en '1.5 Mo'."""
     for unite in ("o", "Ko", "Mo"):
@@ -26,7 +18,6 @@ def lisible(octets):
     return f"{octets:.1f} Go"
 
 
-# ---------- FONCTION 2 : trouver un nom de fichier disponible ----------
 def destination_libre(chemin):
     """photo.webp existe déjà ? On essaie photo_1.webp, photo_2.webp..."""
     original = chemin
@@ -37,7 +28,7 @@ def destination_libre(chemin):
     return chemin
 
 
-# ---------- FONCTION 3 : optimiser UNE image (en mémoire) ----------
+
 def optimiser_en_memoire(chemin, largeur_max, qualite):
     """Renvoie le contenu WebP (en octets) de l'image redimensionnée. N'écrit rien sur le disque."""
     with Image.open(chemin) as image:
@@ -59,8 +50,24 @@ def optimiser_en_memoire(chemin, largeur_max, qualite):
         image.save(tampon, format="WEBP", quality=qualite, method=6)
         return tampon.getvalue()
 
+def preparer_pour_reseau(chemin, taille, qualite):
+    """Recadre l'image à la taille exacte du réseau et renvoie du JPEG."""
+    with Image.open(chemin) as image:
+        image = ImageOps.exif_transpose(image)
+        # fit = redimensionne PUIS recadre au centre pour obtenir la taille exacte
+        image = ImageOps.fit(image, taille, Image.Resampling.LANCZOS)
+        # Le JPEG ne gère pas la transparence : on la remplace par un fond blanc
+        if image.mode in ("RGBA", "LA") or "transparency" in image.info:
+            image = image.convert("RGBA")
+            fond = Image.new("RGB", image.size, "white")
+            fond.paste(image, mask=image.split()[-1])
+            image = fond
+        else:
+            image = image.convert("RGB")
+        tampon = io.BytesIO()
+        image.save(tampon, format="JPEG", quality=qualite, optimize=True)
+        return tampon.getvalue()
 
-# ---------- FONCTION 4 : programme principal (version terminal) ----------
 def main():
     parser = argparse.ArgumentParser(description="Optimise des images pour le web (WebP).")
     parser.add_argument("dossier", help="Dossier contenant les images")
@@ -74,7 +81,7 @@ def main():
                         help="Crée vraiment les images optimisées (sinon : simulation)")
     args = parser.parse_args()
 
-    # --- Vérifications ---
+
     dossier = Path(args.dossier)
     if not dossier.is_dir():
         print("Dossier introuvable.")
@@ -157,7 +164,5 @@ def main():
     else:
         print("Simulation terminée. Ajoute --appliquer pour créer les images.")
 
-
-# ---------- DÉMARRAGE ----------
 if __name__ == "__main__":
     main()
